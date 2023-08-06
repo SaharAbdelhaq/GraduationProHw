@@ -1,0 +1,275 @@
+//9:43 PM last version 
+
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Keypad.h>
+#include <Servo.h>
+#include <AccelStepper.h>
+#include <MultiStepper.h>
+
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
+
+AccelStepper stepper(AccelStepper::FULL4WIRE, 8, 9, 10, 11);
+
+//cup
+const int CupservoPin1 = 22;
+const int CupservoPin2 = 23;
+int CupIRsensor1 = 2;
+
+Servo cupservo1;
+Servo cupservo2;
+
+const int openPosition2 = 90;
+const int openPosition3 = 90;
+
+// trab
+const int servoTrabpin = 7;
+int TrabIRsensor2 = 3;              // for the traaab position
+Servo servoTrab;
+const int openTrab = 180;   // Open position for servo3 in degrees
+
+// Seeds
+const int servoSeedpin1 = 24; //corn
+const int servoSeedpin2 = 25; // 
+
+
+
+const byte ROWS = 1;
+const byte COLS = 5;
+char keys[ROWS][COLS] = {
+  {'1', '2', '3', '4', '5'}
+};
+byte rowPins[ROWS] = {53};
+byte colPins[COLS] = {51, 49, 47, 45, 43};
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+bool chooseCups = false;
+bool chooseSeeds = false;
+int numberOfCups = 1;
+int seedOption = 0;
+
+enum State {
+  STATE_IDLE,
+  CHOOSING_CUPS,
+  CHOOSING_SEEDS,
+  DISPENSING_CUP,
+  DISPENSING_Trab,
+  DISPENSING_SEEDS
+};
+
+State currentState = STATE_IDLE;
+int selectedCups = 0;
+int selectedSeeds = 0;
+
+void setup() {
+    Serial.begin(9600);
+    cupservo1.attach(CupservoPin1);
+    cupservo2.attach(CupservoPin2);
+    servoTrab.attach(servoTrabpin);
+
+  // Set initial positions of the servos
+    cupservo1.write(0);
+    cupservo2.write(0);
+    servoTrab.write(0);
+
+    stepper.setMaxSpeed(10);
+    stepper.setAcceleration(100);
+    stepper.setCurrentPosition(0);
+    pinMode(CupIRsensor1, INPUT);
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Choose # of cups");
+}
+
+void loop() {
+    char key = keypad.getKey();
+
+switch (currentState) {
+        case STATE_IDLE:
+            if (!chooseCups && !chooseSeeds && key == '5') {
+                lcd.clear();
+                lcd.setCursor(0, 0);
+                lcd.print("Select cups:");
+                lcd.setCursor(0, 1);
+                lcd.print(numberOfCups);
+                lcd.print("  Inc  Dec");
+                chooseCups = true;
+            } else if (chooseCups && !chooseSeeds && key) {
+                switch (key) {
+                    case '1':
+                        lcd.clear();
+                        lcd.print("Brewing ");
+                        lcd.print(numberOfCups);
+                        lcd.print(" cups");
+                        delay(2000);
+                        lcd.clear();
+                        lcd.setCursor(0, 0);
+                        lcd.print("Choose type of seeds");
+                        lcd.setCursor(0, 1);
+                        lcd.print("Corn, Lentils");
+                        chooseSeeds = true;
+                        break;
+                    case '2':
+                        if (numberOfCups > 1) {
+                            numberOfCups--;
+                            lcd.setCursor(0, 1);
+                            lcd.print("   ");
+                            lcd.setCursor(0, 1);
+                            lcd.print(numberOfCups);
+                        }
+                        break;
+                    case '3':
+                        if (numberOfCups < 4) {
+                            numberOfCups++;
+                            lcd.setCursor(0, 1);
+                            lcd.print("   ");
+                            lcd.setCursor(0, 1);
+                            lcd.print(numberOfCups);
+                        }
+                        break;
+                    case '4':
+                        Serial.println("Transitioning to CHOOSING_SEEDS state");
+                       // currentState = CHOOSING_SEEDS;
+                        break;
+                }
+            } else if (chooseSeeds && key) {
+                switch (key) {
+                    case '1':
+                        lcd.clear();
+                        lcd.print("Selected Corn");
+                        seedOption = 1;
+                        delay(2000);
+                        lcd.clear();
+                        lcd.setCursor(0, 0);
+                        lcd.print("You chose:");
+                        lcd.setCursor(0, 1);
+                        lcd.print(numberOfCups);
+                        lcd.print(" cups of Corn");
+                        chooseSeeds = false;
+                        currentState = DISPENSING_CUP;
+
+                        break;
+                    case '2':
+                        lcd.clear();
+                        lcd.print("Selected Lentils");
+                        seedOption = 2;
+                        delay(2000);
+                        lcd.clear();
+                        lcd.setCursor(0, 0);
+                        lcd.print("You chose:");
+                        lcd.setCursor(0, 1);
+                        lcd.print(numberOfCups);
+                        lcd.print(" cups of Lentils"); 
+                       chooseSeeds = false;
+                        currentState = DISPENSING_CUP;
+                        break;
+                            
+                    default:
+                        // Print an error message for unrecognized keys or do nothing
+                        break;
+                }
+            }
+                   break;
+
+
+   case DISPENSING_CUP:
+            lcd.clear();
+            lcd.print("Dispensing cup...");
+            delay(1000);
+            dispenseCup();
+            delay(2000);    
+                    
+            currentState = DISPENSING_Trab;
+            selectedCups++;
+            break;
+
+
+    case DISPENSING_Trab:
+            lcd.clear();
+            lcd.print("Dispensing Soil...");
+            delay(1000);    
+            dispenseTrab();
+            delay(1000);
+            currentState = DISPENSING_SEEDS;
+
+        break;
+        
+          
+        case DISPENSING_SEEDS:
+            lcd.clear();
+            lcd.print("Dispensing seeds...");
+            delay(2000);
+            if (selectedSeeds == 1) {
+                dispenseCorn();
+            } else if (selectedSeeds == 2) {
+                dispenseLentils();
+            }
+            
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Dispensed:");
+            lcd.setCursor(0, 1);
+            lcd.print(selectedCups);
+            lcd.print(" cups of ");
+            lcd.print(selectedSeeds == 1 ? "Corn" : "Lentils");
+            if (selectedCups >= numberOfCups) {
+                currentState = STATE_IDLE;
+                selectedCups = 0;
+            } else {
+                currentState = DISPENSING_CUP;
+            }
+            break;
+    }
+}
+
+void dispenseCup() {
+    cupservo1.write(openPosition2);
+    cupservo2.write(openPosition3);
+    delay(3000);
+
+    if (digitalRead(CupIRsensor1) == LOW) {
+        StepperMoving(45);
+        cupservo1.write(0);
+        cupservo2.write(0);
+    }
+    else{
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Error, no cups");
+    }
+    
+    
+}
+
+void dispenseTrab() {
+// open trab servo when the cup is under it, detected by TrabIRsensor
+ if (digitalRead(TrabIRsensor2) == LOW) {
+      servoTrab.write(openTrab);
+        delay(4000);
+        servoTrab.write(0);
+        delay(1000);
+        StepperMoving(45); // Rotate the stepper motor continuously
+        
+ }
+}
+
+void dispenseCorn() {
+    // Implement your logic to control servos and dispense Corn
+    // open cornServo
+}
+
+void dispenseLentils() {
+    // Implement your logic to control servos and dispense Lentils
+    // open LentilsServo
+}
+
+void StepperMoving(int angle) {
+    stepper.setSpeed(20);
+    int targetPosition = stepper.currentPosition() + angle;
+    stepper.moveTo(targetPosition);
+    while (stepper.distanceToGo() != 0) {
+        stepper.run();
+    }
+    stepper.stop();
+}
