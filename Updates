@@ -1,5 +1,3 @@
-//9:43 PM last version 
-
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 #include <Keypad.h>
@@ -29,9 +27,20 @@ Servo servoTrab;
 const int openTrab = 180;   // Open position for servo3 in degrees
 
 // Seeds
-const int servoSeedpin1 = 24; //corn
-const int servoSeedpin2 = 25; // 
+// const int servoSeedpin1 = 24; //corn
+const int servoSeedpin2 = 25; // lentleis
+int SeedsIRsensor3 = 4;              // for the seeeeds position
+Servo servoSeed1;
+Servo servoSeed2;
+const int openSeed1 = 30;   // Open position for servo3 in degrees
+const int openSeed2 = 30;   // Open position for servo3 in degrees
 
+
+//watering
+const int WateringPin = 13; // Pin for controlling the water supply
+bool isWatering = false;
+const int WaterIRsensorPin = 5; // Pin connected to the water IR sensor
+// bool isWatering = false;
 
 
 const byte ROWS = 1;
@@ -66,16 +75,24 @@ void setup() {
     cupservo1.attach(CupservoPin1);
     cupservo2.attach(CupservoPin2);
     servoTrab.attach(servoTrabpin);
-
-  // Set initial positions of the servos
+    // servoSeed1.attach(servoSeedpin1);
+    servoSeed2.attach(servoSeedpin2);
+    
+   // Set initial positions of the servos
     cupservo1.write(0);
     cupservo2.write(0);
     servoTrab.write(0);
+    servoSeed1.write(0);
+    servoSeed2.write(0);
 
     stepper.setMaxSpeed(10);
     stepper.setAcceleration(100);
     stepper.setCurrentPosition(0);
     pinMode(CupIRsensor1, INPUT);
+    pinMode(TrabIRsensor2, INPUT);    // initialize sensor2 as an input
+    pinMode(SeedsIRsensor3, INPUT);    // initialize sensor2 as an input
+    pinMode(WaterIRsensorPin, INPUT); // Set the water IR sensor pin as input
+
     lcd.init();
     lcd.backlight();
     lcd.setCursor(0, 0);
@@ -83,6 +100,7 @@ void setup() {
 }
 
 void loop() {
+
     char key = keypad.getKey();
 
 switch (currentState) {
@@ -110,7 +128,7 @@ switch (currentState) {
                         lcd.print("Corn, Lentils");
                         chooseSeeds = true;
                         break;
-                    case '2':
+                    case '2': //DEC
                         if (numberOfCups > 1) {
                             numberOfCups--;
                             lcd.setCursor(0, 1);
@@ -119,7 +137,7 @@ switch (currentState) {
                             lcd.print(numberOfCups);
                         }
                         break;
-                    case '3':
+                    case '3': //INC
                         if (numberOfCups < 4) {
                             numberOfCups++;
                             lcd.setCursor(0, 1);
@@ -138,7 +156,7 @@ switch (currentState) {
                     case '1':
                         lcd.clear();
                         lcd.print("Selected Corn");
-                        seedOption = 1;
+                        selectedSeeds = 1;
                         delay(2000);
                         lcd.clear();
                         lcd.setCursor(0, 0);
@@ -153,7 +171,7 @@ switch (currentState) {
                     case '2':
                         lcd.clear();
                         lcd.print("Selected Lentils");
-                        seedOption = 2;
+                        selectedSeeds = 2;
                         delay(2000);
                         lcd.clear();
                         lcd.setCursor(0, 0);
@@ -190,22 +208,39 @@ switch (currentState) {
             lcd.print("Dispensing Soil...");
             delay(1000);    
             dispenseTrab();
-            delay(1000);
+            delay(2000);
             currentState = DISPENSING_SEEDS;
 
         break;
-        
           
         case DISPENSING_SEEDS:
             lcd.clear();
             lcd.print("Dispensing seeds...");
             delay(2000);
-            if (selectedSeeds == 1) {
-                dispenseCorn();
-            } else if (selectedSeeds == 2) {
+            if ((digitalRead(SeedsIRsensor3) == LOW)) {
+              if(selectedSeeds == 2|| selectedSeeds == 1 ){
                 dispenseLentils();
-            }
-            
+                // dispenseCorn();
+               StepperMoving(45); // Rotate the stepper motor continuously               
+              }
+          }
+          delay(3000);
+        //  currentState = Watering;
+          break;
+
+          
+        // case Watering:
+        //     lcd.clear();
+        //     lcd.print("Watering...");
+        //     delay(1000);  
+                          
+        //     // write code for this function to control the watering operation
+        //        if (digitalRead(WaterIRsensorPin) == LOW) {
+        //            ControlWaterSupply();
+        //         }
+        //     delay(3000);
+                    
+          
             lcd.clear();
             lcd.setCursor(0, 0);
             lcd.print("Dispensed:");
@@ -213,6 +248,7 @@ switch (currentState) {
             lcd.print(selectedCups);
             lcd.print(" cups of ");
             lcd.print(selectedSeeds == 1 ? "Corn" : "Lentils");
+            
             if (selectedCups >= numberOfCups) {
                 currentState = STATE_IDLE;
                 selectedCups = 0;
@@ -254,14 +290,31 @@ void dispenseTrab() {
  }
 }
 
-void dispenseCorn() {
-    // Implement your logic to control servos and dispense Corn
-    // open cornServo
+void dispenseCorn() {    
+    servoSeed1.write(openSeed2);
+    delay(3000);
+    servoSeed1.write(0); 
+    delay(3000);  
+    StepperMoving(45); // Rotate the stepper motor continuously
 }
 
 void dispenseLentils() {
-    // Implement your logic to control servos and dispense Lentils
-    // open LentilsServo
+    servoSeed2.write(openSeed1);
+    delay(3000);
+    servoSeed2.write(0); 
+    delay(3000);
+    StepperMoving(45); // Rotate the stepper motor continuously
+}
+
+
+void ControlWaterSupply() {
+    if (!isWatering) {
+        digitalWrite(WateringPin, HIGH); // Turn on water supply
+        isWatering = true;
+        delay(5000); // Watering duration (5 seconds in this example)
+        digitalWrite(WateringPin, LOW); // Turn off water supply
+        isWatering = false;
+    }
 }
 
 void StepperMoving(int angle) {
