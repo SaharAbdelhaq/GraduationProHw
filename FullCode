@@ -1,0 +1,535 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <Keypad.h>
+#include <Servo.h>
+#include <AccelStepper.h>
+#include <MultiStepper.h>
+
+//rfid 
+#include <SPI.h>
+#include <MFRC522.h>
+#include <SoftwareSerial.h>
+
+//RFID
+#include <SPI.h>
+
+#include <MFRC522.h>
+#include <MFRC522Extended.h>
+#include <deprecated.h>
+#include <require_cpp11.h>
+
+ #include <RFID.h>
+/* Define the DIO used for the SDA (SS) and RST (reset) pins. */
+
+#define SDA_DIO 9
+#define RESET_DIO 8
+/* Create an instance of the RFID library */
+RFID RC522(SDA_DIO, RESET_DIO); 
+
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
+
+AccelStepper stepper(AccelStepper::FULL4WIRE,A3,A2,A1,A0);
+AccelStepper stepper2(AccelStepper::FULL4WIRE, 31, 33, 35, 37);
+
+
+//cup
+const int CupservoPin1 = 22;
+const int CupservoPin2 = 23;
+
+const int CupservoPin3 = 11;    // btw 
+const int CupservoPin4 = 28;    // up 
+
+
+int CupIRsensor1 = 2;
+
+
+Servo cupservo1;
+Servo cupservo2;
+
+Servo cupservo3;
+Servo cupservo4;
+
+const int openPosition2 = 90;
+const int openPosition3 =90;
+
+// trab
+const int servoTrabpin = 7;
+int TrabIRsensor2 = 3;              // for the traaab position
+Servo servoTrab;
+const int openTrab = 90;   // Open position for servo3 in degrees
+
+// Seeds
+const int servoSeedpin1 = 24; //lenteies
+const int servoSeedpin2 = 25; // corn
+
+int SeedsIRsensor3 = 4;              // for the seeeeds position
+Servo servoSeed1;
+Servo servoSeed2;
+const int openSeed1 = 30;   // Open position for servo3 in degrees
+const int openSeed2 = 30;   // Open position for servo3 in degrees
+
+
+//watering
+const int WaterPumpPin = 27; // Pin for controlling the water supply
+bool isWatering = false;
+const int WaterIRsensorPin = 5; // Pin connected to the water IR 
+// bool isWatering = false;
+
+const int wholeEffectSensorPin = 32;
+
+const byte ROWS = 1;
+const byte COLS = 5;
+char keys[ROWS][COLS] = {
+  {'1', '2', '3', '4', '5'}
+};
+byte rowPins[ROWS] = {49};
+byte colPins[COLS] = {47, 45, 43, 41, 39};
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+bool chooseCups = false;
+bool chooseSeeds = false;
+int numberOfCups = 0;
+int seedOption = 0;
+int varnumofcubs = 0;
+enum State {
+  STATE_IDLE,
+  CHOOSING_CUPS,
+  CHOOSING_SEEDS,
+  DISPENSING_CUP,
+  DISPENSING_Trab,
+  DISPENSING_TRAP2,
+  DISPENSING_SEEDS,
+  Watering,
+  POTMOVE,
+  BELTMOVE,
+  BACKTOSTART,
+    
+};
+
+State currentState = STATE_IDLE;
+int selectedCups = 0;
+int selectedSeeds = 0;
+
+void setup() {
+    Serial.begin(9600);
+    cupservo1.attach(CupservoPin1);
+    cupservo2.attach(CupservoPin2);
+    
+    cupservo3.attach(CupservoPin3);
+    cupservo4.attach(CupservoPin4);
+    
+    servoTrab.attach(servoTrabpin);
+    servoSeed1.attach(servoSeedpin1);
+    servoSeed2.attach(servoSeedpin2);
+    
+   // Set initial positions of the servos
+    cupservo1.write(0);
+    cupservo2.write(0);
+    cupservo3.write(0);
+    cupservo4.write(90); // upppp 
+
+
+    
+    servoTrab.write(0);
+    servoSeed1.write(0);
+    servoSeed2.write(180);
+
+    stepper.setMaxSpeed(10);
+    stepper.setAcceleration(100);
+    stepper.setCurrentPosition(0);
+    stepper2.setCurrentPosition(0);
+    pinMode(CupIRsensor1, INPUT);
+    pinMode(TrabIRsensor2, INPUT);    // initialize sensor2 as an input
+    pinMode(SeedsIRsensor3, INPUT);    // initialize sensor2 as an input
+    pinMode(WaterIRsensorPin, INPUT); // Set the water IR sensor pin as input
+    pinMode(WaterPumpPin, OUTPUT);
+    pinMode(wholeEffectSensorPin, INPUT);        
+    
+
+/* Enable the SPI interface */
+  SPI.begin(); 
+  /* Initialise the RFID reader */
+  RC522.init();
+
+   // Set up the stepper motor
+    stepper2.setMaxSpeed(10000); // Set the maximum speed of the stepper motor (adjust as needed)
+    stepper2.setAcceleration(1000); // Set the acceleration of the stepper motor (adjust as needed)
+
+    
+    lcd.init();
+    lcd.backlight();
+    lcd.setCursor(0, 0);
+    lcd.print("Scan Card");
+
+
+
+}
+
+void loop() {
+
+    char key = keypad.getKey();
+
+switch (currentState) {
+
+        case STATE_IDLE:
+          selectedCups = 0;        
+         if (RC522.isCard()) {
+    /* If so then get its serial number */
+    RC522.readCardSerial();
+    Serial.println("Card detected:");
+    lcd.clear();
+    lcd.print("welcome");
+    
+    for(int i=0;i<5;i++)
+    {
+    Serial.print(RC522.serNum[i],DEC);
+    Serial.print(RC522.serNum[i],HEX); //to print card detail in Hexa Decimal format
+    }
+  }
+
+            if (!chooseCups && !chooseSeeds && key == '5') {
+                lcd.clear();
+                lcd.setCursor(0, 0);
+                lcd.print("Select Pots:");
+                lcd.setCursor(0, 1);
+                lcd.print(numberOfCups);
+                lcd.print("  Inc  Dec");
+                chooseCups = true;
+            } else if (chooseCups && !chooseSeeds && key) {
+                switch (key) {
+                    case '1':
+                        lcd.clear();
+                        lcd.print("Brewing ");
+                        lcd.print(numberOfCups);
+                        lcd.print(" cups");
+                        delay(2000);
+                        lcd.clear();
+                        lcd.setCursor(0, 0);
+                        lcd.print("Choose type of seeds");
+                        lcd.setCursor(0, 1);
+                        lcd.print("Corn, Lentils");
+                        chooseSeeds = true;
+                        break;
+                    case '2': //DEC
+                        if (numberOfCups > 1) {
+                            numberOfCups--;
+                            lcd.setCursor(0, 1);
+                            lcd.print("   ");
+                            lcd.setCursor(0, 1);
+                            lcd.print(numberOfCups);
+                        }
+                        break;
+                    case '3': //INC
+                        if (numberOfCups < 4) {
+                            numberOfCups++;
+                            lcd.setCursor(0, 1);
+                            lcd.print("   ");
+                            lcd.setCursor(0, 1);
+                            lcd.print(numberOfCups);
+                        }
+                        break;
+                    case '4':
+                       // Serial.println("Transitioning to CHOOSING_SEEDS state");
+                         lcd.clear();
+                        lcd.print("soil moisture: 10% "); //25      
+                        delay(3000);                 
+                        break;
+                }
+            } else if (chooseSeeds && key) {
+                switch (key) {
+                    case '1':
+                        lcd.clear();
+                        lcd.print("Selected Corn"); //25
+                        selectedSeeds = 1;
+                        delay(2000);
+                        lcd.clear();
+                        lcd.setCursor(0, 0);
+                        lcd.print("You chose:");
+                        lcd.setCursor(0, 1);
+                        lcd.print(numberOfCups);
+                        lcd.print(" cups of Corn");
+                        chooseSeeds = false;
+                        currentState = DISPENSING_CUP;
+
+                        break;
+                    case '2':
+                        lcd.clear();
+                        lcd.print("Selected Lentils"); //2
+                        selectedSeeds = 2;
+                        delay(2000);
+                        lcd.clear();
+                        lcd.setCursor(0, 0);
+                        lcd.print("You chose:");
+                        lcd.setCursor(0, 1);
+                        lcd.print(numberOfCups);
+                        lcd.print(" cups of Lentils"); 
+                       chooseSeeds = false;
+                        currentState = DISPENSING_CUP;
+                        break;
+                            
+                    default:
+                        break;
+                }
+            }
+                   break;
+
+
+   case DISPENSING_CUP:
+            lcd.clear();
+            lcd.print("Dispensing cup...");
+            delay(1000);
+            dispenseCup();
+            delay(4000);    
+            
+              currentState = DISPENSING_Trab;
+
+
+            
+            break;
+
+
+    case DISPENSING_Trab:
+            lcd.clear();
+            lcd.print("Dispensing Soil...");
+            delay(500);    
+            dispenseTrab();
+            delay(2000);
+            StepperMoving(47);
+            currentState = DISPENSING_SEEDS;
+
+        break;
+          
+        case DISPENSING_SEEDS:
+            lcd.clear();
+            lcd.print("Dispensing seeds...");
+            delay(2000);
+            if ((digitalRead(SeedsIRsensor3) == LOW)) {
+              if(selectedSeeds == 1 ){
+                 dispenseCorn();
+              }
+              else if (selectedSeeds == 2) {
+                dispenseLentils();
+              }
+            
+              StepperMovingReverse(47); // Rotate the stepper motor continuously                  
+
+          }
+          cupservo3.write(90); 
+
+         currentState = DISPENSING_TRAP2;
+          break;
+
+            case DISPENSING_TRAP2:
+            lcd.clear();
+            lcd.print("Dispensing Soil Again...");
+            delay(500);
+            dispenseTrab2();
+            delay(2000);
+            StepperMoving(100); // Rotate the stepper motor continuously               
+              
+         currentState = Watering;
+          break;
+
+          
+        case Watering:
+            lcd.clear();
+            lcd.print("Watering...");
+            delay(1000);  
+                          
+            // write code for this function to control the watering operation
+            dispenseWater();
+            delay(7000);
+                    
+          
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Dispensed:");
+            lcd.setCursor(0, 1);
+            lcd.print(selectedCups);
+            
+            lcd.print(" cups of ");
+            lcd.print(selectedSeeds == 1 ? "Corn" : "Lentils");
+     
+            currentState = POTMOVE ;
+            
+            break;
+
+            case POTMOVE: 
+
+            // stepper.setSpeed(600); // Adjust speed as needed
+            // stepper.runSpeed();
+               StepperMovingWithSpeed50(360, 85);            
+
+               
+            currentState = BELTMOVE ;           
+            break;
+            
+          case BELTMOVE:  
+           
+    
+              StepperBELTMoving(1360);
+                
+               stepper2.disableOutputs();
+            currentState = BACKTOSTART;                     
+          break;  
+                  
+         case BACKTOSTART:
+            // hall effect sensor coding
+            selectedCups++; 
+            StepperBackToStart(360, 20);
+            if (numberOfCups == selectedCups ) {
+                  currentState=STATE_IDLE;
+            }
+            else {
+               cupservo3.write(90);                     
+              currentState =DISPENSING_CUP ; 
+              
+            }
+          
+                
+            break;
+
+    }
+}
+
+void dispenseCup() {
+    cupservo1.write(openPosition2);
+    cupservo2.write(openPosition3);
+    delay(3000);
+
+    if (digitalRead(CupIRsensor1) == LOW) {
+        StepperMoving(52);
+        cupservo1.write(0);
+        cupservo2.write(0);
+    }
+    else{
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Error, no cups");
+    }
+    
+    
+}
+
+void dispenseTrab() {
+// open trab servo when the cup is under it, detected by TrabIRsensor
+ if (digitalRead(TrabIRsensor2) == LOW) {
+      servoTrab.write(openTrab);
+        delay(2000);
+        servoTrab.write(0);
+        delay(1000);
+        
+ }
+}
+
+void dispenseTrab2() {
+// open trab servo when the cup is under it, detected by TrabIRsensor
+ if (digitalRead(TrabIRsensor2) == LOW) {
+      servoTrab.write(openTrab);
+        delay(1000);
+        servoTrab.write(0);
+        delay(1000);
+        
+ }
+}
+
+void dispenseCorn() {    
+    servoSeed1.write(50); 
+    delay(1000); 
+    servoSeed1.write(0);  
+}
+
+void dispenseLentils() {
+    servoSeed2.write(150); 
+    delay(1000);
+    servoSeed2.write(180); 
+}
+
+
+
+
+void StepperMovingWithSpeed50(int angle, float speed) {
+    stepper.setMaxSpeed(speed);
+    stepper.runSpeed();
+    int targetPosition = stepper.currentPosition() + angle;
+    stepper.moveTo(targetPosition);
+    while (stepper.distanceToGo() != 0) {
+        stepper.run();
+    }
+    stepper.stop();
+    delay(2000);
+}
+
+void StepperBackToStart(int angle, float speed) {
+    stepper.setMaxSpeed(speed);
+    stepper.runSpeed();
+    Serial.print("The pos now is : ");
+    Serial.println(stepper.currentPosition());
+    int targetPosition = stepper.currentPosition() + angle;
+    stepper.moveTo(targetPosition);
+    int wholeEffectSensorValue = digitalRead(wholeEffectSensorPin);    
+    while (!wholeEffectSensorValue) {
+        wholeEffectSensorValue = digitalRead(wholeEffectSensorPin);
+        stepper.run();
+    }
+    Serial.println("Finished backtostart scenario");
+    stepper.stop();
+    delay(6000);
+}
+
+
+void StepperMoving(int angle) {
+    stepper.setMaxSpeed(70);
+    int targetPosition = stepper.currentPosition() + angle;
+    stepper.moveTo(targetPosition);
+    while (stepper.distanceToGo() != 0) {
+        stepper.run();
+    }
+    stepper.stop();
+    delay(2000);
+}
+
+//StepperBELTMoving
+void StepperBELTMoving(int angle) {
+    stepper2.enableOutputs();
+    stepper2.setSpeed(20);
+    Serial.print("The current position is : ");
+    Serial.println(stepper2.currentPosition());
+    int targetPosition = stepper2.currentPosition() - angle; // Note the subtraction here
+    stepper2.moveTo(targetPosition);
+    while (stepper2.distanceToGo() != 0) {
+        stepper2.run();
+    }
+    stepper2.stop();
+}
+
+void StepperMovingReverse(int angle) {
+    stepper.setSpeed(20);
+    int targetPosition = stepper.currentPosition() - angle; // Note the subtraction here
+    stepper.moveTo(targetPosition);
+    while (stepper.distanceToGo() != 0) {
+        stepper.run();
+    }
+    stepper.stop();
+    delay(6000);
+}
+
+
+void dispenseWater() {
+    int irValue = digitalRead(WaterIRsensorPin);
+
+    if (irValue == LOW) {
+        // Turn on the water pump if the IR sensor is LOW (object detected)
+        digitalWrite(WaterPumpPin, HIGH);
+        delay(500);
+         digitalWrite(WaterPumpPin, LOW);
+         
+        Serial.println("Water pump turned on.");
+        Serial.println(irValue);
+    } else {
+        // Turn off the water pump if the IR sensor is HIGH (no object detected)
+        digitalWrite(WaterPumpPin, LOW);
+        Serial.println("Water pump turned off.");
+    }  
+}
+
